@@ -13,6 +13,8 @@ import pymysql
 import pymysql.cursors
 import os
 
+from . import __version__
+
 
 # ══════════════════════════════════════════════════════════════
 #  Чтение конфигов Asterisk
@@ -116,6 +118,46 @@ def load_db_config() -> dict:
 DB_CFG  = load_db_config()
 API_KEY = os.environ.get("CDR_API_KEY", "change-me-please")
 
+
+def _detect_schema(cfg: dict) -> dict:
+    """
+    Определяет фактические колонки CDR-таблицы и подбирает имена для:
+      - первичного ключа (id | uniqueid)
+      - колонки имени файла записи (recordingfile | filename | userfield)
+    Разные сборки Asterisk (чистый, FreePBX, AsteriskNOW) используют разные схемы.
+    """
+    conn = pymysql.connect(
+        host=cfg["host"], port=cfg["port"],
+        user=cfg["user"], password=cfg["password"],
+        database=cfg["database"],
+        cursorclass=pymysql.cursors.DictCursor,
+        charset="utf8mb4",
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SHOW COLUMNS FROM `{cfg['table']}`")
+            cols = {row["Field"] for row in cur.fetchall()}
+    finally:
+        conn.close()
+
+    pk = "id" if "id" in cols else "uniqueid"
+
+    rec_col = None
+    for candidate in ("recordingfile", "filename", "userfield"):
+        if candidate in cols:
+            rec_col = candidate
+            break
+
+    return {"columns": cols, "pk": pk, "recording_col": rec_col}
+
+
+try:
+    SCHEMA = _detect_schema(DB_CFG)
+except Exception as e:
+    print(f"  [!] Не удалось прочитать схему CDR-таблицы: {e}")
+    SCHEMA = {"columns": set(), "pk": "uniqueid", "recording_col": None}
+
+
 print("=" * 55)
 print("  Asterisk CDR API")
 print("=" * 55)
@@ -124,6 +166,8 @@ print(f"  database  : {DB_CFG['database']}")
 print(f"  user      : {DB_CFG['user']}")
 print(f"  table     : {DB_CFG['table']}")
 print(f"  recordings: {DB_CFG['rec_dir']}")
+print(f"  pk column : {SCHEMA['pk']}")
+print(f"  rec column: {SCHEMA['recording_col'] or '(не найдена)'}")
 if API_KEY == "change-me-please":
     print("  [!] CDR_API_KEY не задан — установите переменную окружения!")
 print("=" * 55)
@@ -136,7 +180,7 @@ print("=" * 55)
 app = FastAPI(
     title="Asterisk CDR API",
     description="REST API для CDR Asterisk — список звонков, фильтры, скачивание записей",
-    version="1.0.0",
+    version=__version__,
 )
 
 app.add_middleware(
@@ -189,7 +233,9 @@ def get_calls(
     if order_by not in allowed:
         raise HTTPException(400, f"order_by: допустимы {allowed}")
     direction = "DESC" if order_dir.lower() == "desc" else "ASC"
-    table = DB_CFG["table"]
+    table   = DB_CFG["table"]
+    pk      = SCHEMA["pk"]
+    rec_col = SCHEMA["recording_col"]
 
     where, params = ["1=1"], []
     if src:
@@ -203,17 +249,28 @@ def get_calls(
     if date_to:
         where.append("DATE(calldate) <= %s"); params.append(str(date_to))
     if has_recording is True:
-        where.append("filename IS NOT NULL AND filename != ''")
+        if rec_col:
+            where.append(f"`{rec_col}` IS NOT NULL AND `{rec_col}` != ''")
+        else:
+            where.append("0=1")  # колонки записи в схеме нет — пустой результат
     elif has_recording is False:
-        where.append("(filename IS NULL OR filename = '')")
+        if rec_col:
+            where.append(f"(`{rec_col}` IS NULL OR `{rec_col}` = '')")
+
+    # Список колонок для SELECT — только те, что реально есть
+    base_cols = ["calldate", "src", "dst", "duration", "billsec",
+                 "disposition", "channel", "dstchannel", "uniqueid"]
+    select_cols = [pk] + [c for c in base_cols if c in SCHEMA["columns"] and c != pk]
+    if rec_col:
+        select_cols.append(rec_col)
+    select_list = ", ".join(f"`{c}`" for c in select_cols)
 
     w = " AND ".join(where)
     with db.cursor() as cur:
         cur.execute(f"SELECT COUNT(*) as total FROM `{table}` WHERE {w}", params)
         total = cur.fetchone()["total"]
         cur.execute(f"""
-            SELECT id, calldate, src, dst, duration, billsec,
-                   disposition, channel, dstchannel, filename, uniqueid
+            SELECT {select_list}
             FROM `{table}` WHERE {w}
             ORDER BY {order_by} {direction}
             LIMIT %s OFFSET %s
@@ -223,7 +280,10 @@ def get_calls(
     for row in rows:
         if isinstance(row.get("calldate"), datetime):
             row["calldate"] = row["calldate"].isoformat()
-        row["has_recording"] = bool(row.get("filename"))
+        # Унифицированные поля для клиента
+        row["id"] = row.get(pk)
+        row["recording_file"] = row.get(rec_col) if rec_col else None
+        row["has_recording"]  = bool(row["recording_file"])
 
     return {"total": total, "limit": limit, "offset": offset, "calls": rows}
 
@@ -232,14 +292,19 @@ def get_calls(
 #  GET /calls/{id}
 # ─────────────────────────────────────────
 @app.get("/calls/{call_id}", summary="Один звонок", dependencies=[Depends(verify_api_key)])
-def get_call(call_id: int, db=Depends(get_db)):
+def get_call(call_id: str, db=Depends(get_db)):
+    pk = SCHEMA["pk"]
     with db.cursor() as cur:
-        cur.execute(f"SELECT * FROM `{DB_CFG['table']}` WHERE id = %s", (call_id,))
+        cur.execute(f"SELECT * FROM `{DB_CFG['table']}` WHERE `{pk}` = %s", (call_id,))
         row = cur.fetchone()
     if not row:
         raise HTTPException(404, "Звонок не найден")
     if isinstance(row.get("calldate"), datetime):
         row["calldate"] = row["calldate"].isoformat()
+    row["id"] = row.get(pk)
+    rec_col = SCHEMA["recording_col"]
+    row["recording_file"] = row.get(rec_col) if rec_col else None
+    row["has_recording"]  = bool(row["recording_file"])
     return row
 
 
@@ -247,22 +312,39 @@ def get_call(call_id: int, db=Depends(get_db)):
 #  GET /calls/{id}/download
 # ─────────────────────────────────────────
 @app.get("/calls/{call_id}/download", summary="Скачать запись", dependencies=[Depends(verify_api_key)])
-def download_recording(call_id: int, db=Depends(get_db)):
+def download_recording(call_id: str, db=Depends(get_db)):
+    rec_col = SCHEMA["recording_col"]
+    if not rec_col:
+        raise HTTPException(404, "В CDR-таблице нет колонки имени файла записи")
+    pk = SCHEMA["pk"]
+
     with db.cursor() as cur:
-        cur.execute(f"SELECT filename FROM `{DB_CFG['table']}` WHERE id = %s", (call_id,))
+        cur.execute(
+            f"SELECT `{rec_col}` AS rec FROM `{DB_CFG['table']}` WHERE `{pk}` = %s",
+            (call_id,),
+        )
         row = cur.fetchone()
     if not row:
         raise HTTPException(404, "Звонок не найден")
-    if not row.get("filename"):
+    rec_name = row.get("rec")
+    if not rec_name:
         raise HTTPException(404, "Запись для этого звонка отсутствует")
 
-    filepath = os.path.join(DB_CFG["rec_dir"], row["filename"])
+    filepath = os.path.join(DB_CFG["rec_dir"], rec_name)
     if not os.path.exists(filepath):
-        raise HTTPException(404, f"Файл не найден: {row['filename']}")
+        raise HTTPException(404, f"Файл не найден: {rec_name}")
+
+    ext = os.path.splitext(filepath)[1].lower()
+    media_type = {
+        ".wav": "audio/wav",
+        ".mp3": "audio/mpeg",
+        ".ogg": "audio/ogg",
+        ".gsm": "audio/gsm",
+    }.get(ext, "application/octet-stream")
 
     return FileResponse(
         path=filepath,
-        media_type="audio/mpeg",
+        media_type=media_type,
         filename=os.path.basename(filepath),
     )
 
@@ -324,6 +406,9 @@ def show_config():
         "db_user":          DB_CFG["user"],
         "cdr_table":        DB_CFG["table"],
         "recordings_dir":   DB_CFG["rec_dir"],
+        "pk_column":        SCHEMA["pk"],
+        "recording_column": SCHEMA["recording_col"],
+        "cdr_columns":      sorted(SCHEMA["columns"]),
     }
 
 
@@ -332,7 +417,7 @@ def show_config():
 # ─────────────────────────────────────────
 @app.get("/health", summary="Проверка работы")
 def health():
-    return {"status": "ok", "service": "Asterisk CDR API", "version": "1.0.0"}
+    return {"status": "ok", "service": "Asterisk CDR API", "version": __version__}
 
 
 # ─────────────────────────────────────────

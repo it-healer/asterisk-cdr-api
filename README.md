@@ -151,6 +151,30 @@ curl -H "X-Api-Key: мой-ключ" \
 
 ---
 
+## Обновление на боевом сервере
+
+После того как новая версия опубликована на PyPI:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/it-healer/asterisk-cdr-api/main/scripts/update.sh | sudo bash
+```
+
+Или вручную:
+
+```bash
+sudo /opt/asterisk-cdr-api/venv/bin/pip install --upgrade asterisk-cdr-api
+sudo systemctl restart asterisk-cdr-api
+```
+
+Проверить установленную версию:
+
+```bash
+curl -s http://localhost:8000/health
+# {"status":"ok","service":"Asterisk CDR API","version":"1.0.1"}
+```
+
+---
+
 ## Удаление
 
 ```bash
@@ -165,18 +189,25 @@ curl -fsSL https://raw.githubusercontent.com/it-healer/asterisk-cdr-api/main/scr
 
 ---
 
-## Публикация новой версии на PyPI
+## Выпуск новой версии (для разработчика)
 
-1. Обновите `version` в `pyproject.toml` и `asterisk_cdr_api/__init__.py`.
-2. Создайте git-тег и пушните:
+Версия пакета — единственный источник истины в `asterisk_cdr_api/__init__.py` (`__version__`); `pyproject.toml` подтягивает её через `dynamic`.
 
-   ```bash
-   git tag v1.0.1
-   git push origin v1.0.1
-   ```
+Самый простой путь — скрипт `scripts/bump.sh`:
 
-3. GitHub Actions workflow `.github/workflows/publish.yml` сам соберёт пакет
-   и опубликует его на PyPI через Trusted Publishing (без токенов).
+```bash
+./scripts/bump.sh patch   # 1.0.0 → 1.0.1
+./scripts/bump.sh minor   # 1.0.0 → 1.1.0
+./scripts/bump.sh major   # 1.0.0 → 2.0.0
+./scripts/bump.sh 1.2.3   # явная версия
+```
+
+Скрипт:
+1. Поднимает `__version__`.
+2. Делает `git commit -m "release: X.Y.Z"`.
+3. Создаёт тег `vX.Y.Z` и пушит его.
+
+GitHub Actions workflow `.github/workflows/publish.yml` подхватывает тег, собирает пакет и публикует его на PyPI через Trusted Publishing (без токенов).
 
 Первоначальная настройка Trusted Publisher на PyPI: `Account → Publishing → Add a new pending publisher`
 
