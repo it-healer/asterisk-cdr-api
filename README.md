@@ -103,11 +103,12 @@ journalctl -u asterisk-cdr-api -f
 
 ## Переменные окружения
 
-| Переменная    | По умолчанию    | Описание              |
-|---------------|-----------------|------------------------|
-| `CDR_API_KEY` | `change-me-please` | Секретный ключ API  |
-| `CDR_HOST`    | `0.0.0.0`       | Адрес для прослушивания |
-| `CDR_PORT`    | `8000`          | Порт                  |
+| Переменная       | По умолчанию       | Описание                                          |
+|------------------|--------------------|---------------------------------------------------|
+| `CDR_API_KEY`    | `change-me-please` | Секретный ключ API                                |
+| `CDR_HOST`       | `0.0.0.0`          | Адрес для прослушивания                           |
+| `CDR_PORT`       | `8000`             | Порт                                              |
+| `CDR_ROOT_PATH`  | (пусто)            | URL-префикс за reverse-proxy, например `/asterisk-cdr-api` |
 
 ---
 
@@ -179,6 +180,18 @@ curl -H "X-Api-Key: мой-ключ" \
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/it-healer/asterisk-cdr-api/main/scripts/update.sh | sudo bash
+```
+
+Скрипт `install.sh` тоже идемпотентен — если запустить его повторно на уже установленной системе, он обновит пакет, сохранит существующий API ключ и подхватит существующие `CDR_HOST`/`CDR_PORT`/`CDR_ROOT_PATH` как дефолты. Это удобно, если нужно одновременно обновить версию и поменять конфигурацию (например, добавить URL-префикс):
+
+```bash
+# Сменить только префикс, остальное оставить как есть
+curl -fsSL https://raw.githubusercontent.com/it-healer/asterisk-cdr-api/main/scripts/install.sh \
+  | sudo CDR_ROOT_PATH=/asterisk-cdr-api bash
+
+# Или сменить всё сразу
+curl -fsSL https://raw.githubusercontent.com/it-healer/asterisk-cdr-api/main/scripts/install.sh \
+  | sudo CDR_HOST=127.0.0.1 CDR_PORT=9000 CDR_ROOT_PATH=/asterisk-cdr-api bash
 ```
 
 Или вручную:

@@ -177,10 +177,13 @@ print("=" * 55)
 #  FastAPI
 # ══════════════════════════════════════════════════════════════
 
+ROOT_PATH = os.environ.get("CDR_ROOT_PATH", "").rstrip("/")
+
 app = FastAPI(
     title="Asterisk CDR API",
     description="REST API для CDR Asterisk — список звонков, фильтры, скачивание записей",
     version=__version__,
+    root_path=ROOT_PATH,
 )
 
 app.add_middleware(
@@ -427,7 +430,14 @@ def run():
     import uvicorn
     host = os.environ.get("CDR_HOST", "0.0.0.0")
     port = int(os.environ.get("CDR_PORT", "8000"))
-    uvicorn.run("asterisk_cdr_api.main:app", host=host, port=port, reload=False)
+    uvicorn.run(
+        "asterisk_cdr_api.main:app",
+        host=host,
+        port=port,
+        reload=False,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
 
 
 if __name__ == "__main__":
