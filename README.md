@@ -21,9 +21,31 @@ curl -fsSL https://raw.githubusercontent.com/it-healer/asterisk-cdr-api/main/scr
 - Установит Python-зависимости
 - Создаст virtualenv в `/opt/asterisk-cdr-api/`
 - Сгенерирует случайный API ключ
+- Спросит IP и порт HTTP сервера (по умолчанию `0.0.0.0:8000`) и сохранит их в systemd сервис
 - Зарегистрирует и запустит systemd сервис
 
 После установки в консоли будет выведен URL и API ключ.
+
+### Неинтерактивная установка
+
+Если запускаете через пайп (`curl … | sudo bash`), интерактивный ввод недоступен — передайте параметры через переменные окружения:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/it-healer/asterisk-cdr-api/main/scripts/install.sh \
+  | sudo CDR_HOST=127.0.0.1 CDR_PORT=9000 bash
+```
+
+Без переменных будут использованы значения по умолчанию `0.0.0.0:8000`.
+
+Изменить IP/порт после установки:
+
+```bash
+sudo nano /etc/systemd/system/asterisk-cdr-api.service
+# Измените строки:
+#   Environment="CDR_HOST=0.0.0.0"
+#   Environment="CDR_PORT=8000"
+sudo systemctl daemon-reload && sudo systemctl restart asterisk-cdr-api
+```
 
 ---
 
