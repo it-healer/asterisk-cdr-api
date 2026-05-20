@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asterisk-cdr-api"
+version = "1.0.0"
+description = "REST API для CDR Asterisk — список звонков, фильтры, скачивание записей"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [
+    { name = "IT-HEALER", email = "info@it-healer.com" },
+]
+maintainers = [
+    { name = "IT-HEALER", email = "info@it-healer.com" },
+]
+keywords = ["asterisk", "cdr", "voip", "api", "fastapi", "calls", "recordings"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Telecommunications Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Telephony",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: System :: Systems Administration",
+]
+
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "pymysql>=1.1.0",
+]
+
+[project.urls]
+Homepage      = "https://github.com/it-healer/asterisk-cdr-api"
+Repository    = "https://github.com/it-healer/asterisk-cdr-api"
+Documentation = "https://github.com/it-healer/asterisk-cdr-api#readme"
+Issues        = "https://github.com/it-healer/asterisk-cdr-api/issues"
+
+[project.scripts]
+asterisk-cdr-api = "asterisk_cdr_api.main:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["asterisk_cdr_api*"]

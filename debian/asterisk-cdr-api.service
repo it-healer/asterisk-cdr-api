@@ -1,0 +1,28 @@
+[Unit]
+Description=Asterisk CDR API
+Documentation=https://github.com/it-healer/asterisk-cdr-api
+After=network.target mariadb.service mysql.service
+Wants=mariadb.service
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+
+# API ключ — обязательно смените!
+Environment="CDR_API_KEY=change-me-please"
+
+# Опционально: переопределить хост и порт
+#Environment="CDR_HOST=0.0.0.0"
+#Environment="CDR_PORT=8000"
+
+WorkingDirectory=/opt/asterisk-cdr-api
+ExecStart=/opt/asterisk-cdr-api/venv/bin/asterisk-cdr-api
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=asterisk-cdr-api
+
+[Install]
+WantedBy=multi-user.target
