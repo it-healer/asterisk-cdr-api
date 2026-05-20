@@ -21,6 +21,34 @@ command -v python3 >/dev/null || error "python3 не найден"
 PY_VER=$(python3 -c 'import sys; print(sys.version_info.minor)')
 [[ $PY_VER -ge 9 ]] || error "Нужен Python 3.9+, установлен 3.$PY_VER"
 
+# ── Параметры HTTP сервера ────────────────────────────────────
+DEFAULT_HOST="0.0.0.0"
+DEFAULT_PORT="8000"
+
+# Можно задать заранее через переменные окружения CDR_HOST / CDR_PORT
+CDR_HOST="${CDR_HOST:-}"
+CDR_PORT="${CDR_PORT:-}"
+
+# Спрашиваем только если есть терминал и значения не заданы заранее
+if [[ -t 0 ]]; then
+    if [[ -z "$CDR_HOST" ]]; then
+        read -r -p "IP для прослушивания HTTP [${DEFAULT_HOST}]: " CDR_HOST || true
+    fi
+    if [[ -z "$CDR_PORT" ]]; then
+        read -r -p "Порт HTTP сервера [${DEFAULT_PORT}]: " CDR_PORT || true
+    fi
+fi
+
+CDR_HOST="${CDR_HOST:-$DEFAULT_HOST}"
+CDR_PORT="${CDR_PORT:-$DEFAULT_PORT}"
+
+# Валидация порта
+if ! [[ "$CDR_PORT" =~ ^[0-9]+$ ]] || (( CDR_PORT < 1 || CDR_PORT > 65535 )); then
+    error "Неверный порт: $CDR_PORT (допустимо 1–65535)"
+fi
+
+info "HTTP сервер: ${CDR_HOST}:${CDR_PORT}"
+
 # ── Зависимости ───────────────────────────────────────────────
 info "Устанавливаем системные зависимости..."
 apt-get update -qq
@@ -55,6 +83,8 @@ Type=simple
 User=asterisk
 Group=asterisk
 Environment="CDR_API_KEY=${API_KEY}"
+Environment="CDR_HOST=${CDR_HOST}"
+Environment="CDR_PORT=${CDR_PORT}"
 WorkingDirectory=${INSTALL_DIR}
 ExecStart=${INSTALL_DIR}/venv/bin/asterisk-cdr-api
 Restart=on-failure
@@ -84,8 +114,13 @@ echo -e "${GREEN}═════════════════════
 echo -e "${GREEN}  Asterisk CDR API установлен!${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════${NC}"
 echo ""
-echo -e "  URL:      ${YELLOW}http://$(hostname -I | awk '{print $1}'):8000${NC}"
-echo -e "  Swagger:  ${YELLOW}http://$(hostname -I | awk '{print $1}'):8000/docs${NC}"
+if [[ "$CDR_HOST" == "0.0.0.0" || "$CDR_HOST" == "::" ]]; then
+    DISPLAY_HOST=$(hostname -I | awk '{print $1}')
+else
+    DISPLAY_HOST="$CDR_HOST"
+fi
+echo -e "  URL:      ${YELLOW}http://${DISPLAY_HOST}:${CDR_PORT}${NC}"
+echo -e "  Swagger:  ${YELLOW}http://${DISPLAY_HOST}:${CDR_PORT}/docs${NC}"
 echo -e "  API Key:  ${YELLOW}${API_KEY}${NC}"
 echo ""
 echo -e "  Сохраните API ключ! Он записан в:"
