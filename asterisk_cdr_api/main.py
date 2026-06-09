@@ -314,6 +314,32 @@ def get_call(call_id: str, db=Depends(get_db)):
 # ─────────────────────────────────────────
 #  GET /calls/{id}/download
 # ─────────────────────────────────────────
+def _resolve_recording_file(rec_name: str) -> Optional[str]:
+    """
+    Подбирает путь к файлу записи для скачивания.
+
+    MixMonitor в режиме STEREO сохраняет на один звонок несколько файлов:
+      <base>.wav      — смикшированный моно
+      <base>_r.wav    — одна сторона (receive)
+      <base>_t.wav    — другая сторона (transmit)
+      <base>_mix.wav  — смикшированный стерео
+    В CDR-таблицу Asterisk пишет базовое имя (<base>.wav). По возможности
+    отдаём стерео-версию <base>_mix.wav, иначе — исходный файл из CDR.
+    """
+    rec_dir = DB_CFG["rec_dir"]
+    root, ext = os.path.splitext(rec_name)
+
+    stereo = os.path.join(rec_dir, f"{root}_mix{ext}")
+    if os.path.exists(stereo):
+        return stereo
+
+    original = os.path.join(rec_dir, rec_name)
+    if os.path.exists(original):
+        return original
+
+    return None
+
+
 @app.get("/calls/{call_id}/download", summary="Скачать запись", dependencies=[Depends(verify_api_key)])
 def download_recording(call_id: str, db=Depends(get_db)):
     rec_col = SCHEMA["recording_col"]
@@ -333,8 +359,8 @@ def download_recording(call_id: str, db=Depends(get_db)):
     if not rec_name:
         raise HTTPException(404, "Запись для этого звонка отсутствует")
 
-    filepath = os.path.join(DB_CFG["rec_dir"], rec_name)
-    if not os.path.exists(filepath):
+    filepath = _resolve_recording_file(rec_name)
+    if not filepath:
         raise HTTPException(404, f"Файл не найден: {rec_name}")
 
     ext = os.path.splitext(filepath)[1].lower()
